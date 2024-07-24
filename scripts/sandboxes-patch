@@ -58,8 +58,10 @@ mount --rbind "$SANDBOXES_DIR/run/usr-lib-systemd-network" /usr/lib/systemd/netw
 
 systemctl start systemd-networkd
 
+PERSIST_DIR="$SANDBOXES_DIR/persist"
+
 # Make destination dirs which will survive reboot and upgrade
-mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var-lib-machines" "$SANDBOXES_DIR/persist/etc-systemd-nspawn" "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants" "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d"
+mkdir -p "$PERSIST_DIR/run-systemd-system" "$PERSIST_DIR/var-lib-machines" "$PERSIST_DIR/etc-systemd-nspawn" "$PERSIST_DIR/etc-systemd-system-machines.target.wants" "$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d"
 
 # NOTE: when executing `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` then an editor will open this file:
 # /etc/systemd/system/systemd-nspawn@$SOME_SANDBOX.service.d/override.conf
@@ -71,34 +73,34 @@ mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var
 # Anything stored inside /run/systemd/system is usually lost after a reboot,
 # so we remove everything except the nspawn .conf files
 
-for file in "$SANDBOXES_DIR/persist/run-systemd-system/"*; do
+for file in "$PERSIST_DIR/run-systemd-system/"*; do
     [[ ! $(basename "$file") =~ ^systemd-nspawn@.*\.service.d ]] && rm -r "$file" && echo "Removed stale file $file from previous boot (it is not part of Sandboxes)."
 done
 
 # Override the default ExecStart line in systemd-nspawn@.service to workaround the issues caused by the -U usernamespacing option
-[ ! -f "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf" ] && {
-    echo 'ExecStart=systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --private-users=pick --private-users-ownership=chown --settings=override --machine=%i' >"$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf"
+[ ! -f "$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf" ] && {
+    echo 'ExecStart=systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --private-users=pick --private-users-ownership=chown --settings=override --machine=%i' >"$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf"
 }
 
 # In case the default behavior needs to be changed (or match jailmaker more closely) e.g. regarding DevicePolicy=closed,
 # then these changes can be made to the override.conf created above
 
 # Store edits done with `systemctl edit systemd-nspawn@.service``
-mount --mkdir --bind "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d" /etc/systemd/system/systemd-nspawn@.service.d
+mount --mkdir --bind "$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d" /etc/systemd/system/systemd-nspawn@.service.d
 
 # Store service override.conf files
-mount --mkdir --bind "$SANDBOXES_DIR/persist/run-systemd-system" /run/systemd/system
+mount --mkdir --bind "$PERSIST_DIR/run-systemd-system" /run/systemd/system
 
 # Store the machine images
 # https://manpages.debian.org/bookworm/systemd-container/machinectl.1.en.html#FILES_AND_DIRECTORIES
-mount --mkdir --bind "$SANDBOXES_DIR/persist/var-lib-machines" /var/lib/machines
+mount --mkdir --bind "$PERSIST_DIR/var-lib-machines" /var/lib/machines
 
 # Store .nspawn config files so privileged config options take effect
 # https://manpages.debian.org/bookworm/systemd-container/systemd.nspawn.5.en.html#.NSPAWN_FILE_DISCOVERY
-mount --mkdir --bind "$SANDBOXES_DIR/persist/etc-systemd-nspawn" /etc/systemd/nspawn
+mount --mkdir --bind "$PERSIST_DIR/etc-systemd-nspawn" /etc/systemd/nspawn
 
 # Store which machines should be started at boot
-mount --mkdir --bind "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants" /etc/systemd/system/machines.target.wants
+mount --mkdir --bind "$PERSIST_DIR/etc-systemd-system-machines.target.wants" /etc/systemd/system/machines.target.wants
 
 # Running `machinectl enable some_sandbox` outputs:
 # Created symlink from /etc/systemd/system/machines.target.wants/systemd-nspawn@some_sandbox.service to /usr/lib/systemd/system/systemd-nspawn@.service.

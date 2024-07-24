@@ -28,6 +28,14 @@ ABSOLUTE_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_NAME=$(basename "${ABSOLUTE_SCRIPT_PATH}")
 SCRIPT_PARENT_DIR="$(dirname "$ABSOLUTE_SCRIPT_PATH")"
 
+NSPAWN_SERVICE_OVERRIDE=$(
+    cat <<'EOF'
+[Service]
+ExecStart=
+ExecStart=systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --private-users=pick --private-users-ownership=chown --settings=override --machine=%i
+EOF
+)
+
 # Make the Sandboxes scripts available globally as if they were stored in /usr/local/bin
 mount -t overlay overlay -o lowerdir="$SCRIPT_PARENT_DIR":/usr/local/bin /usr/local/bin
 
@@ -79,7 +87,7 @@ done
 
 # Override the default ExecStart line in systemd-nspawn@.service to workaround the issues caused by the -U usernamespacing option
 [ ! -f "$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf" ] && {
-    echo 'ExecStart=systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --private-users=pick --private-users-ownership=chown --settings=override --machine=%i' >"$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf"
+    echo "$NSPAWN_SERVICE_OVERRIDE" >"$PERSIST_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf"
 }
 
 # In case the default behavior needs to be changed (or match jailmaker more closely) e.g. regarding DevicePolicy=closed,

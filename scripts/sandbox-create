@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+# Author: Jip-Hop
+# Copyright: Copyright (C) 2024, Jip-Hop
+# License: LGPL-3.0-only
+# Disclaimer: USE THIS SCRIPT AT YOUR OWN RISK! IT COMES WITHOUT WARRANTY AND IS NOT SUPPORTED BY IXSYSTEMS
+
+# Example: sandbox-create ubuntu noble my.ubuntu.sandbox
+
+set -euo pipefail
+shopt -s nullglob # handle empty glob results gracefully
+shopt -s dotglob  # include filenames starting with a dot
+
+[ ! -f /run/sandboxes_patch_applied ] && {
+    echo 'The sandboxes patch has not been applied.'
+    echo 'Please refer to the instruction in the README to apply the sandboxes-patch.'
+    exit 1
+}
+
+[[ $UID -ne 0 ]] && echo 'Run this script as root...' && exit 1
+
+SANDBOXES_DIR="$(zfs get -H -o value jip-hop:sandboxes_dir boot-pool)"
+
+[ "$SANDBOXES_DIR" == - ] && echo "Please set the jip-hop:sandboxes_dir zfs property on the boot-pool." && exit 1
+[ ! -d "$SANDBOXES_DIR" ] && echo "Directory $SANDBOXES_DIR does not exist." && exit 1
+
+# TODO: allow user to provide this config file when running this script
+NSPAWN_CONFIG=$(
+    cat <<'EOF'
+# [Files]
+# BindReadOnly=/mnt/some/example/dir
+EOF
+)
+
+# Cloud init tutorial:
+# https://mangalakader.github.io/post/systemd-nspawn-container-musings-part-2/
+
+# TODO: allow user to provide this config file when running this script
+DS_IDENTIFY=$(
+    cat <<'EOF'
+datasource: None
+policy: search,found=first,maybe=none,notfound=disabled
+EOF
+)
+
+# TODO: allow user to provide this config file when running this script
+CLOUD_INIT=$(
+    cat <<'EOF'
+datasource:
+  None:
+    metadata:
+      local-hostname: "myhost.internal"
+    userdata_raw: |
+      #cloud-config
+      package_upgrade: true
+      packages:
+      - bash
+      - curl
+      runcmd:
+      - [touch, /run/cloud.init.ran]
+      - curl -fsSL https://get.docker.com | sh
+
+EOF
+)
+
+function create_sandbox() {
+
+    distro="$1"
+    release="$2"
+    sbname="$3"
+    sbdir="$4"
+
+    # TODO: add cloud init post-install config file
+
+    # The config.nspawn file is used for general config of the sandbox
+    # https://manpages.debian.org/bookworm/systemd-container/systemd.nspawn.5.en.html
+    # E.g. bind mounts, networking config
+
+    printf "%s" "$NSPAWN_CONFIG" >/etc/systemd/nspawn/"$sbname".nspawn
+
+    # TODO: why does creating this override config also rollback the changes made by sandboxes-patch
+    # at /etc/systemd/system/systemd-nspawn@.service.d/override.conf?
+    # Should I instead patch and mount /lib/systemd/system/systemd-nspawn@.service from sandboxes-patch?
+    # # The override.conf file overrides the config in /lib/systemd/system/systemd-nspawn@.service
+    # # https://github.com/systemd/systemd/blob/main/units/systemd-nspawn%40.service.in
+    # # E.g. to grant access to additional devices (nvidia GPU, fuse, etc.)
+    # # But also to add hooks (ExecStartPre, ExecStartPost, ExecStopPost)
+    # # https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
+    # # TODO: put commented examples inside override.conf
+    # mkdir -p "/run/systemd/system/systemd-nspawn@$sbname.service.d/"
+    # touch "/run/systemd/system/systemd-nspawn@$sbname.service.d/override.conf"
+
+    mkdir -p "$sbdir"
+
+    TEMPD="$(mktemp -d)"
+
+    # The lxc script needs a config file to write to, but we don't need it
+    touch "$TEMPD/config"
+
+    (
+        cd "$SANDBOXES_DIR/.lxc" # to ensure lxc-download.sh creates cache files in this directory
+        ./lxc-download.sh --name="$sbname" --path="$TEMPD" --rootfs="$sbdir" --arch=amd64 --dist="$distro" --release="$release" --variant=cloud
+    )
+
+    rm -r "$TEMPD"
+
+    # Remove config which systemd handles for us
+    rm -f "$sbdir/etc/machine-id"
+    rm -f "$sbdir/etc/resolv.conf"
+    # Allow login as root from console: https://github.com/systemd/systemd/issues/852
+    rm -f "$sbdir/etc/securetty"
+
+    systemd-nspawn -M "$sbname" systemctl enable systemd-networkd
+
+    mkdir -p "$sbdir/etc/cloud/"
+    printf "%s\n" "$DS_IDENTIFY" >"$sbdir/etc/cloud/ds-identify.cfg"
+    printf "%s\n" "$CLOUD_INIT" >"$sbdir/etc/cloud/cloud.cfg.d/nspawn.cfg"
+
+    # Removing cloud-init.disabled will enable cloud-init
+    rm -f "$sbdir/etc/cloud/cloud-init.disabled"
+
+    # TODO: fix networking config like I do in jlmkr.py?
+    # TODO: cleanup written files in case the create process fails
+
+    systemctl daemon-reload
+    echo "Done creating sandbox"
+}
+
+function validate_checksum() {
+    file_path="$1"
+    digest="$2"
+
+    actual_hash=$(sha256sum "$file_path" | awk '{print $1}')
+    [ ! "$actual_hash" = "$digest" ] && return 1
+
+    return 0
+}
+
+LXC_DOWNLOAD_SCRIPT_DIGEST="cfcb5d08b24187d108f2ab0d21a6cc4b73dcd7f5d7dfc80803bfd7f1642d638d"
+
+validate_checksum "$SANDBOXES_DIR/.lxc/lxc-download.sh" "$LXC_DOWNLOAD_SCRIPT_DIGEST" || {
+    mkdir -p "$SANDBOXES_DIR/.lxc"
+
+    # Get the lxc-download script
+    curl -o "$SANDBOXES_DIR/.lxc/lxc-download.sh" https://raw.githubusercontent.com/Jip-Hop/lxc/97f93be72ebf380f3966259410b70b1c966b0ff0/templates/lxc-download.in
+
+    validate_checksum "$SANDBOXES_DIR/.lxc/lxc-download.sh" "$LXC_DOWNLOAD_SCRIPT_DIGEST" || (
+        echo "ERROR: checksum validation failed for $SANDBOXES_DIR/.lxc/lxc-download.sh. Corrupt file?"
+        exit 1
+    )
+
+    chmod +x "$SANDBOXES_DIR/.lxc/lxc-download.sh"
+}
+
+distro="$1"
+release="$2"
+sbname="$3"
+sbdir="/var/lib/machines/$sbname"
+
+[ -d "$sbdir" ] && {
+    echo "ERROR: Sandbox with name $sbname already exists at $sbdir."
+    exit 1
+}
+
+create_sandbox "$distro" "$release" "$sbname" "$sbdir"
+# Enable the sandbox to start automatically after the next reboot
+machinectl enable "$sbname"
+# Start sandbox now with all config applied
+machinectl start "$sbname"
+
+# Or to override the config values on a one-off basis:
+# systemd-nspawn --boot -M debian --bind-ro=/mnt
+# However the above will boot the container in the foreground and ask for login credentials, so you need to first
+# systemd-nspawn -M debian passwd
+# To override the config in override.conf on a one-off basis one would have to use systemd-run

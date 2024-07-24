@@ -43,9 +43,10 @@ SANDBOXES_DIR="$(zfs get -H -o value jip-hop:sandboxes_dir boot-pool)"
 
 mkdir -p "$SANDBOXES_DIR/run/usr-lib-systemd-network"
 
-touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"
-touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vz.network"
-touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-ve.network"
+# Create files if they don't already exist
+true >>"$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"
+true >>"$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vz.network"
+true >>"$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-ve.network"
 
 # We're only interested in these 3 config files, so we explicitly bind only these
 mount --bind /usr/lib/systemd/network/80-container-vb.network "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"

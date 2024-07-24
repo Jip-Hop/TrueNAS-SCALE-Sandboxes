@@ -84,7 +84,7 @@ done
 # then these changes can be made to the override.conf created above
 
 # Store edits done with `systemctl edit systemd-nspawn@.service``
-mount --mkdir --bind "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/" /etc/systemd/system/systemd-nspawn@.service.d/
+mount --mkdir --bind "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d" /etc/systemd/system/systemd-nspawn@.service.d
 
 # Store service override.conf files
 mount --mkdir --bind "$SANDBOXES_DIR/persist/run-systemd-system" /run/systemd/system

@@ -4,6 +4,8 @@ This repository provides research and a working POC on how to integrate [Sandbox
 
 However, since iXsystems decided to build support for Sandboxes based on `systemd-nspawn` into SCALE there's no need to leave the root filesystem unaltered when developing proper integration. Hence it is now possible to create a solution where `systemd-nspawn` and `machinectl` (mostly) work like on any other system. **NOTE: this is a proposal**. It currently works on SCALE 24.04 but may stop working in future versions. The goal of this repo is to serve as a reference when implementing Sandboxes and iXsystems decides if this will make it into the [TrueNAS codebase](https://github.com/truenas/). The actual implementation is up to their developers.
 
+**This repo exists for educational purposes. Try at your own risk!**
+
 ## Configuring a Sandbox
 
 It's important to realize that configuring a Sandbox has to be done on two levels: 

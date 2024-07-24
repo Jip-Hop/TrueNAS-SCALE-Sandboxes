@@ -120,7 +120,9 @@ systemctl daemon-reload
 for service in /etc/systemd/system/machines.target.wants/*.service; do
     service=$(basename "$service")
     echo "Starting service: $service"
-    systemctl start "$service"
+    systemctl start "$service" || {
+        echo "ERROR: failed to start $service."
+    }
 done
 
 touch /run/sandboxes_patch_applied

@@ -116,25 +116,6 @@ PrivateUsers=pick
 
 [Files]
 PrivateUsersOwnership=chown
-
-[Network]
-; This disables networking in the Sandbox completely
-Private=yes
-VirtualEthernet=false
-
-;; Uncomment to use MACVLAN networking.
-;; Replace ens3 with the name of your network interface.
-;; Remove all other settings from the [Network] section.
-; MACVLAN=ens3
-
-;; Uncomment to use bridge networking.
-;; Replace br0 with the name of your network interface.
-;; Remove all other settings from the [Network] section.
-;Bridge=br0
-
-;; Uncomment to use host networking.
-;; Remove all other settings from the [Network] section.
-; Private=false
 ```
 
 And paste it in the editor opened by:
@@ -148,10 +129,6 @@ With this config file you can configure e.g. networking, bind mounts and disable
 We explicitly set `PrivateUsers=pick` and `PrivateUsersOwnership=chown`. By default `PrivateUsersOwnership` is set to `auto` due to the `-U` flag in the `/lib/systemd/system/systemd-nspawn@.service` file. Due to `auto` it will settle on `map` which causes the following errors: can't login with `machinectl login "$SANDBOX_NAME"` and running `systemd-run --machine "$SANDBOX_NAME" --quiet --pipe --wait --collect --service-type=exec ls /root` causes `ls: cannot open directory '/root': Permission denied`.
 
 TODO: test again with latest update of SCALE if `map` works. If not, fix usernamespacing by overriding the default `ExecStart=` line in `/lib/systemd/system/systemd-nspawn@.service` so the default settings work and we don't need to make the `.nspawn` file.
-
-We also can't use the default `veth` networking because [it requires `systemd-networkd` to be running on the host](https://wiki.archlinux.org/title/systemd-nspawn#Use_a_virtual_Ethernet_link) (which is not the case on SCALE) to start a DHCP server. Edit the config file to enable the networking option appropriate for your situation.
-
-TODO: figure out if it's possible to enable `systemd-networkd` without trashing the networks created and managed from the SCALE web interface. Maybe by bind-mounting over `/lib/systemd/network/` and only keeping the `.network` files required for the host side of `zone` and `veth`?
 
 TODO: show how to allow access to devices or disable seccomp with `systemctl edit --runtime systemd-nspawn@$SANDBOX_NAME.service` and point out this known issue regarding the `--runtime` flag.
 
@@ -187,7 +164,6 @@ Handling special cases (GPU passthrough, setup of multiple bridge interfaces etc
 ## Known Issues
 
 - Edits done with `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` are lost after upgrading SCALE. A workaround is available by (ab)using `/run/systemd/system`. This is however not in line with the semantics of these dirs: `/run/systemd/system` should be lost each reboot but with this workaround is persistent and `/etc/systemd/system` should be persistent but edits to the `.service` files here are lost on upgrade. Fixing this properly requires integrating into the TrueNAS SCALE upgrade process. See comments inside `sandboxes-patch` for more info.
-- The `veth` and `zone` networking options don't work because [it requires `systemd-networkd` to be running on the host](https://wiki.archlinux.org/title/systemd-nspawn#Use_a_virtual_Ethernet_link) (which is not the case on SCALE) to start a DHCP server. I didn't test if `systemd-networkd` can be enabled without causing conflicts (it's probably disabled for a reason). But perhaps iX could fix these conflicts by removing all `.network` files from SCALE, except the ones required to setup the interfaces for the `veth` and `zone` options.
 
 ## Recommendation
 

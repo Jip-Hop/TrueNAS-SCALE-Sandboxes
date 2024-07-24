@@ -36,6 +36,27 @@ SANDBOXES_DIR="$(zfs get -H -o value jip-hop:sandboxes_dir boot-pool)"
 [ "$SANDBOXES_DIR" == - ] && echo "Please set the jip-hop:sandboxes_dir zfs property on the boot-pool." && exit 1
 [ ! -d "$SANDBOXES_DIR" ] && echo "Directory $SANDBOXES_DIR does not exist." && exit 1
 
+# Enable systemd-networkd with required config to fix veth and zone networking options
+# This is potentially unsafe and needs more testing in how this interacts with the networks
+# created and managed from the SCALE web interface
+# TODO: more testing
+
+mkdir -p "$SANDBOXES_DIR/run/usr-lib-systemd-network"
+
+touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"
+touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vz.network"
+touch "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-ve.network"
+
+# We're only interested in these 3 config files, so we explicitly bind only these
+mount --bind /usr/lib/systemd/network/80-container-vb.network "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"
+mount --bind /usr/lib/systemd/network/80-container-vz.network "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vz.network"
+mount --bind /usr/lib/systemd/network/80-container-ve.network "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-ve.network"
+
+# Bind mount only the required files back at /usr/lib/systemd/network
+mount --rbind "$SANDBOXES_DIR/run/usr-lib-systemd-network" /usr/lib/systemd/network
+
+systemctl start systemd-networkd
+
 # Make destination dirs which will survive reboot and upgrade
 mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var-lib-machines" "$SANDBOXES_DIR/persist/etc-systemd-nspawn" "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants"
 

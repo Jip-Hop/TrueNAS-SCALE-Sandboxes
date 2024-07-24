@@ -51,11 +51,11 @@ sudo zfs set jip-hop:sandboxes_dir=/mnt/tank/path/to/desired/sandboxes/dir boot-
 /root/usr-local-bin/sandboxes-patch
 ```
 
-This process simulates configuring a Sandboxes dataset or directory by storing this user choice in the `sandboxes_dir` zfs property and makes the `sandboxes-create` command available regardless of the current working directory.
+This process simulates configuring a Sandboxes dataset or directory by storing this user choice in the `sandboxes_dir` zfs property. Ensure `sandboxes_dir` actually exists and is stored on one of your data pools. After following the steps above the files in `scripts` are made available to execute regardless of the current working directory (since `/usr/local/bin` is included in the `PATH`).
 
-The `sandboxes-patch` script mounts the locations where `systemd` expects the `nspawn` related config files into the `sandboxes_dir` so that they will remain persistent (even after upgrading SCALE).
+The `sandboxes-patch` script mounts persistent directories from the `sandboxes_dir` into the locations where `systemd` expects the `nspawn` related files so that they will survive upgrading SCALE.
 
-Then open the TrueNAS SCALE web interface and add `/root/usr-local-bin/sandboxes-patch` as Post Init Script with Type `Command`. Ensure `sandboxes_dir` actually exists and is stored on one of your data pools. Then reboot the NAS.
+Then open the TrueNAS SCALE web interface and add `/root/usr-local-bin/sandboxes-patch` as Post Init Script with Type `Command` and reboot the NAS.
 
 ## Undo Patch
 
@@ -64,6 +64,12 @@ The easiest way to undo the patch it to disable the Post Init Script and reboot 
 ```sh
 machinectl list # shows running sandboxes
 sudo machinectl stop # do this for all running sandboxes
+SANDBOXES_DIR="$(zfs get -H -o value jip-hop:sandboxes_dir boot-pool)"
+sudo umount "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vb.network"
+sudo umount "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-vz.network"
+sudo umount "$SANDBOXES_DIR/run/usr-lib-systemd-network/80-container-ve.network"
+sudo umount /usr/lib/systemd/network
+sudo umount /etc/systemd/system/systemd-nspawn@.service.d
 sudo umount /usr/local/bin
 sudo umount /run/systemd/system
 sudo umount /var/lib/machines
@@ -147,15 +153,24 @@ This approach benefits from the documentation and standard behavior of `systemd-
 
 Handling special cases (GPU passthrough, setup of multiple bridge interfaces etc.) may be more challenging compared to a centralized approach like `jailmaker`. A centralized approach sits in between the config files and the actual starting of a Sandbox. This way all config related to a single Sandbox can be managed in a central place. Custom logic, which can't be achieved with CLI args of config options, can be implemented this way too (e.g. GPU passthrough with drivers).
 
-## Missing Features v.s. Jailmaker
+## Compared to Jailmaker
 
-- Centrally managed config per Sandbox
-- Convenient GPU passthrough (including nvidia libs)
-- Automated rootfs download and setup
-- Initial setup (customizing) the Sandbox
-- Embedding hook scripts inside config files
-- Config templates
-- Creating a ZFS dataset for each Sandbox
+|   |   |
+|---|---|
+|❌|No centrally managed config per Sandbox|
+|❌|No convenient GPU passthrough (including nvidia libs)|
+|❌|No automated rootfs download and setup|
+|❌|No embedded initial setup script inside config files|
+|❌|No embedded hook scripts inside config files|
+|❌|No config templates|
+|❌|Not creating a ZFS dataset for each Sandbox|
+|✅|Usernamespacing on by default|
+|✅|Working `zone` and `veth` networking|
+|✅|Using `veth` networking by default|
+|✅|Using native systemd config file format|
+|✅|Integrates properly with the `systemd-nspawn` ecosystem (`machinectl`, `systemctl` etc.)|
+|✅|Existing `systemd-nspawn` documentation applies|
+|✅|Very little custom code|
 
 ## Known Issues
 

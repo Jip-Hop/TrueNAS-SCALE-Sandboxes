@@ -176,6 +176,7 @@ Handling special cases (GPU passthrough, setup of multiple bridge interfaces etc
 
 - Edits done with `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` are lost after upgrading SCALE. A workaround is available by (ab)using `/run/systemd/system`. This is however not in line with the semantics of these dirs: `/run/systemd/system` should be lost each reboot but with this workaround is persistent and `/etc/systemd/system` should be persistent but edits to the `.service` files here are lost on upgrade. Fixing this properly requires integrating into the TrueNAS SCALE upgrade process. See comments inside `sandboxes-patch` for more info.
 - The `-U` flag in the `/lib/systemd/system/systemd-nspawn@.service` file is causing issues. This sets `PrivateUsersOwnership` to `auto` and it will settle on `map` which causes the following errors: can't login with `machinectl login "$SANDBOX_NAME"` and running `systemd-run --machine "$SANDBOX_NAME" --quiet --pipe --wait --collect --service-type=exec ls /root` causes `ls: cannot open directory '/root': Permission denied`. As a workaround we explicitly set `--private-users=pick --private-users-ownership=chown` in the `override.conf` file for `systemd-nspawn@.service`. TODO: test again with latest update of SCALE if `map` works.
+- When removing a Sandbox with `machinectl remove` while it was enabled to auto-start, the corresponding symlink won't be removed from `/etc/systemd/system/machines.target.wants`
 
 ## Recommendation
 

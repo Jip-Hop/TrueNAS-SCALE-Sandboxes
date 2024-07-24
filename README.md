@@ -109,13 +109,11 @@ Since `systemd-resolved` is not running on the host we should not enable and ins
 Then copy the following text:
 
 ```ini
-[Exec]
-PrivateUsers=pick
-; TODO: do we need ResolvConf for MACVLAN or Bridge? The default value of auto works for host networking.
-; ResolvConf=bind-host
-
+# This will make everything under /mnt (pools, datasets) accessible to the Sandbox
+# By default usernamespacing is used so you need to set appropriate owner/group and file permissions
+# so that processes in the Sandbox can actually read/write these files
 [Files]
-PrivateUsersOwnership=chown
+BindReadOnly=/mnt
 ```
 
 And paste it in the editor opened by:
@@ -124,11 +122,7 @@ And paste it in the editor opened by:
 nano "/etc/systemd/nspawn/$SANDBOX_NAME.nspawn"
 ```
 
-With this config file you can configure e.g. networking, bind mounts and disable usernamespacing.
-
-We explicitly set `PrivateUsers=pick` and `PrivateUsersOwnership=chown`. By default `PrivateUsersOwnership` is set to `auto` due to the `-U` flag in the `/lib/systemd/system/systemd-nspawn@.service` file. Due to `auto` it will settle on `map` which causes the following errors: can't login with `machinectl login "$SANDBOX_NAME"` and running `systemd-run --machine "$SANDBOX_NAME" --quiet --pipe --wait --collect --service-type=exec ls /root` causes `ls: cannot open directory '/root': Permission denied`.
-
-TODO: test again with latest update of SCALE if `map` works. If not, fix usernamespacing by overriding the default `ExecStart=` line in `/lib/systemd/system/systemd-nspawn@.service` so the default settings work and we don't need to make the `.nspawn` file.
+With this config file you can configure e.g. networking, bind mounts and disable usernamespacing. The example `.nspawn` config will make everything under `/mnt` accessible to the Sandbox.
 
 TODO: show how to allow access to devices or disable seccomp with `systemctl edit --runtime systemd-nspawn@$SANDBOX_NAME.service` and point out this known issue regarding the `--runtime` flag.
 
@@ -164,6 +158,7 @@ Handling special cases (GPU passthrough, setup of multiple bridge interfaces etc
 ## Known Issues
 
 - Edits done with `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` are lost after upgrading SCALE. A workaround is available by (ab)using `/run/systemd/system`. This is however not in line with the semantics of these dirs: `/run/systemd/system` should be lost each reboot but with this workaround is persistent and `/etc/systemd/system` should be persistent but edits to the `.service` files here are lost on upgrade. Fixing this properly requires integrating into the TrueNAS SCALE upgrade process. See comments inside `sandboxes-patch` for more info.
+- The `-U` flag in the `/lib/systemd/system/systemd-nspawn@.service` file is causing issues. This sets `PrivateUsersOwnership` to `auto` and it will settle on `map` which causes the following errors: can't login with `machinectl login "$SANDBOX_NAME"` and running `systemd-run --machine "$SANDBOX_NAME" --quiet --pipe --wait --collect --service-type=exec ls /root` causes `ls: cannot open directory '/root': Permission denied`. As a workaround we explicitly set `--private-users=pick --private-users-ownership=chown` in the `override.conf` file for `systemd-nspawn@.service`. TODO: test again with latest update of SCALE if `map` works.
 
 ## Recommendation
 

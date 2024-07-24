@@ -58,7 +58,7 @@ mount --rbind "$SANDBOXES_DIR/run/usr-lib-systemd-network" /usr/lib/systemd/netw
 systemctl start systemd-networkd
 
 # Make destination dirs which will survive reboot and upgrade
-mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var-lib-machines" "$SANDBOXES_DIR/persist/etc-systemd-nspawn" "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants"
+mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var-lib-machines" "$SANDBOXES_DIR/persist/etc-systemd-nspawn" "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants" "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d"
 
 # NOTE: when executing `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` then an editor will open this file:
 # /etc/systemd/system/systemd-nspawn@$SOME_SANDBOX.service.d/override.conf
@@ -73,6 +73,17 @@ mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var
 for file in "$SANDBOXES_DIR/persist/run-systemd-system/"*; do
     [[ ! $(basename "$file") =~ ^systemd-nspawn@.*\.service.d ]] && rm -r "$file" && echo "Removed stale file $file from previous boot (it is not part of Sandboxes)."
 done
+
+# Override the default ExecStart line in systemd-nspawn@.service to workaround the issues caused by the -U usernamespacing option
+[ ! -f "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf" ] && {
+    echo 'ExecStart=systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --private-users=pick --private-users-ownership=chown --settings=override --machine=%i' >"$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/override.conf"
+}
+
+# In case the default behavior needs to be changed (or match jailmaker more closely) e.g. regarding DevicePolicy=closed,
+# then these changes can be made to the override.conf created above
+
+# Store edits done with `systemctl edit systemd-nspawn@.service``
+mount --mkdir --bind "$SANDBOXES_DIR/etc-systemd-system-systemd\x2dnspawn\x40.service.d/" /etc/systemd/system/systemd-nspawn@.service.d/
 
 # Store service override.conf files
 mount --mkdir --bind "$SANDBOXES_DIR/persist/run-systemd-system" /run/systemd/system

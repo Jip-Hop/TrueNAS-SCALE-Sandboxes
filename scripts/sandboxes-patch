@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# Author: Jip-Hop
+# Copyright: Copyright (C) 2024, Jip-Hop
+# License: LGPL-3.0-only
+# Disclaimer: USE THIS SCRIPT AT YOUR OWN RISK! IT COMES WITHOUT WARRANTY AND IS NOT SUPPORTED BY IXSYSTEMS
+
+# This script redirects the files created by systemd/machinectl which are related to systemd-nspawn
+# into a user specified Sandboxes directory as configured by the SANDBOXES_DIR env variable.
+# This way these files are stored outside of the system rootfs, so they will survive upgrades,
+# but are still accessible in the expected locations from the perspective of the system.
+# The benefit of this is that systemd-nspawn and machinectl (mostly) work like on any other system.
+
+set -euo pipefail
+shopt -s nullglob # handle empty glob results gracefully
+shopt -s dotglob  # include filenames starting with a dot
+
+[ -f /run/sandboxes_patch_applied ] && {
+    echo 'The sandboxes patch has already been applied.'
+    echo 'If you want to change the sandboxes_dir then please reboot and reapply the patch.'
+    echo 'Or follow the instructions in the README to undo the patch without reboot.'
+    exit 1
+}
+
+[[ $UID -ne 0 ]] && echo 'Run this script as root...' && exit 1
+
+ABSOLUTE_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_NAME=$(basename "${ABSOLUTE_SCRIPT_PATH}")
+SCRIPT_PARENT_DIR="$(dirname "$ABSOLUTE_SCRIPT_PATH")"
+
+# Make the Sandboxes scripts available globally as if they were stored in /usr/local/bin
+mount -t overlay overlay -o lowerdir="$SCRIPT_PARENT_DIR":/usr/local/bin /usr/local/bin
+
+SANDBOXES_DIR="$(zfs get -H -o value jip-hop:sandboxes_dir boot-pool)"
+
+[ "$SANDBOXES_DIR" == - ] && echo "Please set the jip-hop:sandboxes_dir zfs property on the boot-pool." && exit 1
+[ ! -d "$SANDBOXES_DIR" ] && echo "Directory $SANDBOXES_DIR does not exist." && exit 1
+
+# Make destination dirs which will survive reboot and upgrade
+mkdir -p "$SANDBOXES_DIR/persist/run-systemd-system" "$SANDBOXES_DIR/persist/var-lib-machines" "$SANDBOXES_DIR/persist/etc-systemd-nspawn" "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants"
+
+# NOTE: when executing `systemctl edit systemd-nspawn@$SOME_SANDBOX.service` then an editor will open this file:
+# /etc/systemd/system/systemd-nspawn@$SOME_SANDBOX.service.d/override.conf
+# Since this file is inside /etc and not in /run, any edits done this way are currently lost
+# Supporting `systemctl edit` is not trivial, because /etc/systemd/system contains files unrelated to Sandboxes
+# This would probably require a pre-upgrade backup and post-upgrade restore in the SCALE upgrade process
+# Or a process monitoring /etc/systemd/system for changes and syncing files we want to persist into $SANDBOXES_DIR
+# Workaround is to instead run `systemctl edit --runtime systemd-nspawn@$SOME_SANDBOX.service`
+# Anything stored inside /run/systemd/system is usually lost after a reboot,
+# so we remove everything except the nspawn .conf files
+
+for file in "$SANDBOXES_DIR/persist/run-systemd-system/"*; do
+    [[ ! $(basename "$file") =~ ^systemd-nspawn@.*\.service.d ]] && rm -r "$file" && echo "Removed stale file $file from previous boot (it is not part of Sandboxes)."
+done
+
+# Store service override.conf files
+mount --mkdir --bind "$SANDBOXES_DIR/persist/run-systemd-system" /run/systemd/system
+
+# Store the machine images
+# https://manpages.debian.org/bookworm/systemd-container/machinectl.1.en.html#FILES_AND_DIRECTORIES
+mount --mkdir --bind "$SANDBOXES_DIR/persist/var-lib-machines" /var/lib/machines
+
+# Store .nspawn config files so privileged config options take effect
+# https://manpages.debian.org/bookworm/systemd-container/systemd.nspawn.5.en.html#.NSPAWN_FILE_DISCOVERY
+mount --mkdir --bind "$SANDBOXES_DIR/persist/etc-systemd-nspawn" /etc/systemd/nspawn
+
+# Store which machines should be started at boot
+mount --mkdir --bind "$SANDBOXES_DIR/persist/etc-systemd-system-machines.target.wants" /etc/systemd/system/machines.target.wants
+
+# Running `machinectl enable some_sandbox` outputs:
+# Created symlink from /etc/systemd/system/machines.target.wants/systemd-nspawn@some_sandbox.service to /usr/lib/systemd/system/systemd-nspawn@.service.
+
+# Start Sandboxes listed in /etc/systemd/system/machines.target.wants
+
+systemctl daemon-reload
+# Start enabled Sandboxes
+for service in /etc/systemd/system/machines.target.wants/*.service; do
+    service=$(basename "$service")
+    echo "Starting service: $service"
+    systemctl start "$service"
+done
+
+touch /run/sandboxes_patch_applied
+
+echo "Finished $SCRIPT_NAME"

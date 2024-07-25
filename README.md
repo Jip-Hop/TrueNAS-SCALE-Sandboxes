@@ -145,6 +145,25 @@ machinectl shell "$SANDBOX_NAME"
 
 You should now be able to execute commands in the Sandbox and it should be started automatically after the next reboot and will not be erased when you upgrade SCALE.
 
+## Automatically Creating a Sandbox
+
+The `sandbox-create` script is a POC on how to automatically create a Sandbox. It uses the [LXC images from Linux Containers](https://images.linuxcontainers.org) in the cloud-init variant. This means that it's possible to customize the packages which should be installed and run scripts on first boot (amongst other things). The `sandbox-create` POC script currently installs `docker` through cloud-init. To actually make docker work you also need to add the below to the `.nspawn` file:
+
+```ini
+[Exec]
+SystemCallFilter=add_key keyctl bpf
+```
+
+TODO: put the above in the POC `sandbox-create` script.
+
+This is how you create a new ubuntu noble Sandbox named my.ubuntu.sandbox and enter a shell inside it:
+
+```sh
+sandbox-create ubuntu noble my.ubuntu.sandbox
+sleep 10
+machinectl shell my.ubuntu.sandbox
+```
+
 ## Benefits
 
 This approach benefits from the documentation and standard behavior of `systemd-nspawn`, because it's not reinventing the wheel. Only where Sandboxes deviates from how `systemd-nspawn` works by default needs to be documented. There's very little required, in terms of code, to integrate Sandboxes into TrueNAS SCALE this way. It does not require a custom config file format and code to parse and 'intercept' commands (e.g. to start a Sandbox) which are otherwise natively available. This means for example that `machinectl` can list images, `systemd-nspawn` can start an image (regardless of workdir) and you may temporarily override settings without editing config files for testing (then make permanent by editing config).
@@ -155,22 +174,23 @@ Handling special cases (GPU passthrough, setup of multiple bridge interfaces etc
 
 ## Compared to Jailmaker
 
-|   |   |
-|---|---|
-|❌|No centrally managed config per Sandbox|
-|❌|No convenient GPU passthrough (including nvidia libs)|
-|❌|No automated rootfs download and setup|
-|❌|No embedded initial setup script inside config files|
-|❌|No embedded hook scripts inside config files|
-|❌|No config templates|
-|❌|Not creating a ZFS dataset for each Sandbox|
-|✅|Usernamespacing on by default|
-|✅|Working `zone` and `veth` networking|
-|✅|Using `veth` networking by default|
-|✅|Using native systemd config file format|
-|✅|Integrates properly with the `systemd-nspawn` ecosystem (`machinectl`, `systemctl` etc.)|
-|✅|Existing `systemd-nspawn` documentation applies|
-|✅|Very little custom code|
+|Feature|This Repo|Jailmaker|
+|---|---|---|
+|Automated rootfs download and setup|✅ via POC script + cloud-init|✅|
+|1 config file per Sandbox|❌ 1 `override.conf` + 1 `.nspawn` + 1 cloud-init `.cfg`|✅|
+|Embedded initial setup script inside config file|✅ va cloud-init|✅|
+|Embedded hook scripts inside config file|❌ but supports hooks via ExecStartPre, ExecStartPost, ExecStopPost|✅|
+|Config templates|❌|✅|
+|Convenient GPU passthrough (including nvidia libs)|❌|✅|
+|Convenient passthrough of multiple bridge interfaces|❌|✅|
+|Creating a ZFS dataset for each Sandbox|❌|✅|
+|Usernamespacing on by default|✅|❌|
+|Working `zone` and `veth` networking|✅|❌|
+|Using `veth` networking by default|✅|❌|
+|Using native systemd config file format|✅|❌|
+|Integrates properly with the `systemd-nspawn` ecosystem (`machinectl`, `systemctl` etc.)|✅|❌|
+|Existing `systemd-nspawn` documentation applies|✅|❌|
+|Very little custom code|✅|❌|
 
 ## Known Issues
 
